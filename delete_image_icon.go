@@ -1,14 +1,10 @@
-package server
+package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-
-	"github.com/trondn/imgapi/errorcodes"
-	"github.com/trondn/imgapi/manifest"
 )
 
 func getIconFile(path string) (filename string, content_type string) {
@@ -34,23 +30,24 @@ func getIconFile(path string) (filename string, content_type string) {
 	return "", ""
 }
 
-func doDeleteImageIcon(path string, params url.Values) (int, map[string]interface{}) {
+func doServerDeleteImageIcon(path string, params url.Values) (int, map[string]interface{}) {
 	for k, _ := range params {
 		switch k {
 		case "account":
+			fallthrough
 		case "channel":
 			message := map[string]interface{}{
 				"code":    "InsufficientServerVersion",
 				"message": "The server does not support \"account\" and \"channel\"",
 			}
-			return errorcodes.InsufficientServerVersion, message
+			return InsufficientServerVersion, message
 
 		default:
 			message := map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("Invalid parameter: %s", k),
 			}
-			return errorcodes.InvalidParameter, message
+			return InvalidParameter, message
 		}
 	}
 
@@ -60,39 +57,32 @@ func doDeleteImageIcon(path string, params url.Values) (int, map[string]interfac
 			"code":    "ResourceNotFound",
 			"message": "No such image",
 		}
-		return errorcodes.ResourceNotFound, message
+		return ResourceNotFound, message
 	}
 
-	m, err := manifest.Load(path + "/manifest.json")
+	m, err := LoadManifest(path + "/manifest.json")
 	if err != nil {
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to load manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 	m["icon"] = false
-	err = manifest.Store(path+"/manifest.json", m)
+	err = StoreManifest(path+"/manifest.json", m)
 	if err != nil {
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to store manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	os.Remove(filename)
-	return errorcodes.Success, m
+	return Success, m
 }
 
-func DeleteImageIcon(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
-	h := w.Header()
-	h.Set("Server", "Norbye Public Images Repo")
-	h.Set("Content-Type", "application/json; charset=utf-8")
-
-	code, m := doDeleteImageIcon(path, params)
-
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+func serverDeleteImageIcon(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
+	code, content := doServerDeleteImageIcon(path, params)
+	sendResponse(w, code, content)
 }

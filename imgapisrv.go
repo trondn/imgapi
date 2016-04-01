@@ -1,31 +1,70 @@
-package server
+package main
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/trondn/imgapi/common"
-	"github.com/trondn/imgapi/errorcodes"
 )
 
-var configuration common.Configuration
+/**
+ * I can't use http.ServeFile due to https://github.com/golang/go/issues/13892
+ *
+ * As a workaround I'm going to spool the entire file into memory and then
+ * write it back.. This won't fly on a popular server, but ehh right now
+ * I'm only serving myself ;-)
+ */
+func serveFile(w http.ResponseWriter, r *http.Request, path string, content_type string) {
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		sendResponse(w, InternalError,
+			map[string]interface{}{
+				"code":    "InternalError",
+				"message": fmt.Sprintf("Failed to read file %s: %v", path, err),
+			})
+		return
+	}
+
+	h := w.Header()
+	h.Set("Server", "Norbye Public Images Repo")
+	h.Set("Content-Type", content_type)
+	h.Set("Content-Length", strconv.Itoa(len(content)))
+	_, err = w.Write(content)
+	if err != nil {
+		log.Printf("Failed to send %s: %v", path, err)
+	}
+}
 
 func sendResponse(w http.ResponseWriter, code int, content map[string]interface{}) {
 	h := w.Header()
 	h.Set("Server", "Norbye Public Images Repo")
-	w.WriteHeader(code)
-	if content != nil {
-		h.Set("Content-Type", "application/json; charset=utf-8")
-		a, _ := json.MarshalIndent(content, "", "  ")
-		w.Write(a)
+
+	if content == nil {
+		w.WriteHeader(code)
+		return
 	}
+
+	h.Set("Content-Type", "application/json; charset=utf-8")
+
+	a, err := json.MarshalIndent(content, "", "  ")
+	if err != nil {
+		log.Printf("Failed to convert response to JSON: %v",
+			err)
+		a, err = json.MarshalIndent(map[string]interface{}{
+			"code":    "InvalidError",
+			"message": fmt.Sprintf("%v", err),
+		}, "", "")
+		code = InternalError
+	}
+
+	w.WriteHeader(code)
+	w.Write(a)
 }
 
 /**
@@ -63,13 +102,13 @@ GetImageIcon	GET /images/:uuid/icon	Get the image icon file.
 // Handle all GET request made to /images
 func doHandleGetImages(w http.ResponseWriter, r *http.Request, params url.Values) {
 	if r.URL.Path == "/images" {
-		ListImages(configuration.Datadir, w, r)
+		serverListImages(configuration.Datadir, w, r)
 		return
 	}
 
 	uuid, file, err := splitImagesUrl(r.URL.Path)
 	if err != nil {
-		sendResponse(w, errorcodes.InvalidParameter,
+		sendResponse(w, InvalidParameter,
 			map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("%v", err),
@@ -80,8 +119,8 @@ func doHandleGetImages(w http.ResponseWriter, r *http.Request, params url.Values
 	// check if the resource exists
 	filename := configuration.Datadir + "/" + uuid
 	_, err = os.Stat(filename)
-	if err == nil {
-		sendResponse(w, errorcodes.ResourceNotFound,
+	if err != nil {
+		sendResponse(w, ResourceNotFound,
 			map[string]interface{}{
 				"code":    "ResourceNotFound",
 				"message": fmt.Sprintf("Failed to locate %s: %v", filename, err),
@@ -91,21 +130,21 @@ func doHandleGetImages(w http.ResponseWriter, r *http.Request, params url.Values
 
 	// Ok, everything should be OK.. go do it!
 	if len(file) == 0 {
-		GetImage(w, r, params, filename)
+		serverGetImage(w, r, params, filename)
 		return
 	}
 
 	if file == "/icon" {
-		GetImageIcon(w, r, params, filename)
+		serverGetImageIcon(w, r, params, filename)
 		return
 	}
 
 	if file == "/file" {
-		GetImageFile(w, r, params, filename)
+		serverGetImageFile(w, r, params, filename)
 		return
 	}
 
-	sendResponse(w, errorcodes.ResourceNotFound,
+	sendResponse(w, ResourceNotFound,
 		map[string]interface{}{
 			"code":    "ResourceNotFound",
 			"message": "Requested resource does not exist",
@@ -120,7 +159,7 @@ DeleteImageIcon	DELETE /images/:uuid/icon	Remove the image icon.
 func doHandleDeleteImages(w http.ResponseWriter, r *http.Request, params url.Values) {
 	uuid, file, err := splitImagesUrl(r.URL.Path)
 	if err != nil {
-		sendResponse(w, errorcodes.InvalidParameter,
+		sendResponse(w, InvalidParameter,
 			map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": "Failed to decode URL",
@@ -131,16 +170,16 @@ func doHandleDeleteImages(w http.ResponseWriter, r *http.Request, params url.Val
 	path := configuration.Datadir + "/" + uuid
 	if len(file) > 0 {
 		if file == "/icon" {
-			DeleteImageIcon(w, r, params, path)
+			serverDeleteImageIcon(w, r, params, path)
 		} else {
-			sendResponse(w, errorcodes.ResourceNotFound,
+			sendResponse(w, ResourceNotFound,
 				map[string]interface{}{
 					"code":    "ResourceNotFound",
 					"message": "Resource does not exists",
 				})
 		}
 	} else {
-		DeleteImage(w, r, params, path)
+		serverDeleteImage(w, r, params, path)
 	}
 }
 
@@ -170,13 +209,13 @@ CreateImageFromVm	POST /images?action=create-from-vm	Create a new (activated) im
 */
 func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Values) {
 	if "/images" == r.URL.Path {
-		CreateImage(w, r, params, configuration.Datadir)
+		serverCreateImage(w, r, params, configuration.Datadir)
 		return
 	}
 
 	uuid, file, err := splitImagesUrl(r.URL.Path)
 	if err != nil {
-		sendResponse(w, errorcodes.InvalidParameter,
+		sendResponse(w, InvalidParameter,
 			map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": "Failed to decode URL",
@@ -188,13 +227,13 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 	_, err = os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			sendResponse(w, errorcodes.ResourceNotFound,
+			sendResponse(w, ResourceNotFound,
 				map[string]interface{}{
 					"code":    "ResourceNotFound",
 					"message": "Failed to locate resource",
 				})
 		} else {
-			sendResponse(w, errorcodes.InternalError,
+			sendResponse(w, InternalError,
 				map[string]interface{}{
 					"code":    "InternalError",
 					"message": fmt.Sprintf("Failed to locate resource %v", err),
@@ -205,11 +244,11 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 
 	switch file {
 	case "/icon":
-		AddImageIcon(w, r, params, path)
+		serverAddImageIcon(w, r, params, path)
 		return
 
 	case "/acl":
-		sendResponse(w, errorcodes.InsufficientServerVersion,
+		sendResponse(w, InsufficientServerVersion,
 			map[string]interface{}{
 				"code":    "InsufficientServerVersion",
 				"message": "acl is not implemented",
@@ -221,25 +260,29 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 		if ok {
 			switch action[0] {
 			case "activate":
-				ActivateImage(w, r, params, path)
+				serverActivateImage(w, r, params, path)
 				break
 			case "update":
-				UpdateImage(w, r, params, path)
+				serverUpdateImage(w, r, params, path)
 				break
 			case "disable":
-				DisableImage(w, r, params, path)
+				serverDisableImage(w, r, params, path)
 				break
 			case "enable":
-				EnableImage(w, r, params, path)
+				serverEnableImage(w, r, params, path)
 				break
 
 			case "export":
+				fallthrough
 			case "copy-remote":
+				fallthrough
 			case "import-remote":
+				fallthrough
 			case "import":
+				fallthrough
 			case "channel-add":
 				// Not implemented yet
-				sendResponse(w, errorcodes.InsufficientServerVersion,
+				sendResponse(w, InsufficientServerVersion,
 					map[string]interface{}{
 						"code":    "InsufficientServerVersion",
 						"message": fmt.Sprintf("action=\"%s\" is not implemented", action[0]),
@@ -247,14 +290,14 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 				break
 
 			default:
-				sendResponse(w, errorcodes.InvalidParameter,
+				sendResponse(w, InvalidParameter,
 					map[string]interface{}{
 						"code":    "InvalidParameter",
 						"message": fmt.Sprintf("Invalid action \"%s\"", action[0]),
 					})
 			}
 		} else {
-			sendResponse(w, errorcodes.InvalidParameter,
+			sendResponse(w, InvalidParameter,
 				map[string]interface{}{
 					"code":    "InvalidParameter",
 					"message": "action parameter not specified",
@@ -263,7 +306,7 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 		return
 	default:
 		// The request was for an invalid resource
-		sendResponse(w, errorcodes.ResourceNotFound,
+		sendResponse(w, ResourceNotFound,
 			map[string]interface{}{
 				"code":    "ResourceNotFound",
 				"message": "Invalid URL specified",
@@ -279,7 +322,7 @@ func doHandlePostImages(w http.ResponseWriter, r *http.Request, params url.Value
 func doHandlePutImages(w http.ResponseWriter, r *http.Request, params url.Values) {
 	uuid, file, err := splitImagesUrl(r.URL.Path)
 	if err != nil || file != "/file" {
-		sendResponse(w, errorcodes.InvalidParameter,
+		sendResponse(w, InvalidParameter,
 			map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": "Failed to decode URL",
@@ -288,7 +331,7 @@ func doHandlePutImages(w http.ResponseWriter, r *http.Request, params url.Values
 	}
 
 	path := configuration.Datadir + "/" + uuid
-	AddImageFile(w, r, params, path)
+	serverAddImageFile(w, r, params, path)
 }
 
 /**
@@ -314,7 +357,7 @@ func doHandleImages(w http.ResponseWriter, r *http.Request) {
 			found = true
 			if password != entry.Password {
 				log.Printf("Invalid username password combo for %s", username)
-				sendResponse(w, errorcodes.UnauthorizedError,
+				sendResponse(w, UnauthorizedError,
 					map[string]interface{}{
 						"code":    "UnauthorizedError",
 						"message": "Invalid username/password combination",
@@ -326,7 +369,7 @@ func doHandleImages(w http.ResponseWriter, r *http.Request) {
 
 		if !found {
 			log.Printf("User %s does not exists", username)
-			sendResponse(w, errorcodes.AccountDoesNotExist,
+			sendResponse(w, AccountDoesNotExist,
 				map[string]interface{}{
 					"code":    "AccountDoesNotExist",
 					"message": fmt.Sprintf("User %s does not exist", username),
@@ -339,7 +382,7 @@ func doHandleImages(w http.ResponseWriter, r *http.Request) {
 
 	parameters, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		sendResponse(w, errorcodes.InternalError,
+		sendResponse(w, InternalError,
 			map[string]interface{}{
 				"code":    "InternalError",
 				"message": "Failed to parse query",
@@ -352,19 +395,19 @@ func doHandleImages(w http.ResponseWriter, r *http.Request) {
 		if authenticated {
 			doHandleDeleteImages(w, r, parameters)
 		} else {
-			w.WriteHeader(errorcodes.UnauthorizedError)
+			w.WriteHeader(UnauthorizedError)
 		}
 	} else if r.Method == "POST" {
 		if authenticated {
 			doHandlePostImages(w, r, parameters)
 		} else {
-			w.WriteHeader(errorcodes.UnauthorizedError)
+			w.WriteHeader(UnauthorizedError)
 		}
 	} else if r.Method == "PUT" {
 		if authenticated {
 			doHandlePutImages(w, r, parameters)
 		} else {
-			w.WriteHeader(errorcodes.UnauthorizedError)
+			w.WriteHeader(UnauthorizedError)
 		}
 	}
 }
@@ -375,20 +418,19 @@ ListChannels	GET /channels	List image channels (if the server uses channels).
 Ping	GET /ping	Ping if the server is up.
 */
 
-func StartImageServer(conf common.Configuration) {
-	configuration = conf
-
+func startImageServer() {
 	_, err := os.Stat(configuration.Datadir)
 	if err != nil && os.IsNotExist(err) {
 		err = os.MkdirAll(configuration.Datadir, 0777)
 		if err != nil {
-			panic(fmt.Sprintf("Failed to create %s: %v", configuration.Datadir, err))
+			panic(fmt.Sprintf("Failed to create %s: %v",
+				configuration.Datadir, err))
 		}
 	}
 
 	http.HandleFunc("/images", doHandleImages)
 	http.HandleFunc("/images/", doHandleImages)
-	http.HandleFunc("/channels", ListChannels)
-	http.HandleFunc("/ping", Ping)
+	http.HandleFunc("/channels", serverListChannels)
+	http.HandleFunc("/ping", serverPing)
 	http.ListenAndServe(":"+strconv.Itoa(configuration.Port), nil)
 }

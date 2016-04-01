@@ -1,67 +1,61 @@
-package server
+package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-
-	"github.com/trondn/imgapi/errorcodes"
-	"github.com/trondn/imgapi/manifest"
 )
 
-func doAddImageIcon(path string, params url.Values, header http.Header, reader io.Reader) (int, map[string]interface{}) {
+func doServerAddImageIcon(path string, params url.Values, header http.Header, reader io.Reader) (int, map[string]interface{}) {
 	content_type := header.Get("Content-Type")
 	var extension string
 
 	switch content_type {
 	case "image/jpeg":
 		extension = ".jpg"
-		break
 	case "image/png":
 		extension = ".png"
-		break
 	case "image/gif":
 		extension = ".gif"
-		break
 	case "":
 		message := map[string]interface{}{
 			"code":    "InvalidParameter",
 			"message": "Content-Type not present",
 		}
-		return errorcodes.InvalidParameter, message
+		return InvalidParameter, message
 	default:
 		message := map[string]interface{}{
 			"code":    "InvalidParameter",
 			"message": fmt.Sprintf("Unknown Content-Type \"%s\"", content_type),
 		}
-		return errorcodes.InvalidParameter, message
+		return InvalidParameter, message
 	}
 
 	var expectedsha1 string
 	for k, v := range params {
 		switch k {
 		case "account":
+			fallthrough
 		case "channel":
+			fallthrough
 		case "storage":
 			message := map[string]interface{}{
 				"code":    "InsufficientServerVersion",
 				"message": "The server does not support \"account\" and \"channel\"",
 			}
-			return errorcodes.InsufficientServerVersion, message
+			return InsufficientServerVersion, message
 
 		case "sha1":
 			expectedsha1 = v[0]
-			break
 
 		default:
 			message := map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("Invalid parameter: %s", k),
 			}
-			return errorcodes.InvalidParameter, message
+			return InvalidParameter, message
 		}
 	}
 
@@ -73,7 +67,7 @@ func doAddImageIcon(path string, params url.Values, header http.Header, reader i
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to create image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	_, err = io.Copy(writer, reader)
@@ -83,18 +77,18 @@ func doAddImageIcon(path string, params url.Values, header http.Header, reader i
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to store image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	if len(expectedsha1) > 0 {
-		sha1, err := getSha1Sum(filename)
+		sha1, err := GetSha1Sum(filename)
 		if err != nil {
 			os.Remove(filename)
 			message := map[string]interface{}{
 				"code":    "InternalError",
 				"message": fmt.Sprintf("Failed to generate sha1: %v", err),
 			}
-			return errorcodes.InternalError, message
+			return InternalError, message
 		}
 
 		if expectedsha1 != sha1 {
@@ -103,41 +97,34 @@ func doAddImageIcon(path string, params url.Values, header http.Header, reader i
 				"code":    "InternalError",
 				"message": fmt.Sprintf("Incorrect SHA. expected \"%s\" got \"%s\"", expectedsha1, sha1),
 			}
-			return errorcodes.InternalError, message
+			return InternalError, message
 		}
 	}
 
-	m, err := manifest.Load(path + "/manifest.json")
+	m, err := LoadManifest(path + "/manifest.json")
 	if err != nil {
 		os.Remove(filename)
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to load manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 	m["icon"] = true
-	err = manifest.Store(path+"/manifest.json", m)
+	err = StoreManifest(path+"/manifest.json", m)
 	if err != nil {
 		os.Remove(filename)
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to store manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
-	return errorcodes.Success, m
+	return Success, m
 }
 
-func AddImageIcon(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
-	h := w.Header()
-	h.Set("Server", "Norbye Public Images Repo")
-	h.Set("Content-Type", "application/json; charset=utf-8")
-
-	code, m := doAddImageIcon(path, params, r.Header, r.Body)
-
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+func serverAddImageIcon(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
+	code, content := doServerAddImageIcon(path, params, r.Header, r.Body)
+	sendResponse(w, code, content)
 }

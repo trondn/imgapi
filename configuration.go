@@ -1,4 +1,4 @@
-package common
+package main
 
 type UserEntry struct {
 	Name     string `json:"name"`

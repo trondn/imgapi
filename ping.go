@@ -1,18 +1,15 @@
-package server
+package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-
-	"github.com/trondn/imgapi/errorcodes"
 )
 
-func doPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}) {
+func doServerPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}) {
 	if len(r.Method) > 0 && r.Method != "GET" {
-		return errorcodes.BadRequestError, map[string]interface{}{
+		return BadRequestError, map[string]interface{}{
 			"code":    "BadRequestError",
 			"message": fmt.Sprintf("Illegal method %s", r.Method),
 		}
@@ -20,7 +17,7 @@ func doPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}
 
 	parameters, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		return errorcodes.BadRequestError, map[string]interface{}{
+		return BadRequestError, map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to parse query %v", err),
 		}
@@ -31,7 +28,7 @@ func doPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}
 
 	for k, v := range parameters {
 		if len(v) != 0 { // don't allow the same param to occur multiple times
-			return errorcodes.InsufficientServerVersion, map[string]interface{}{
+			return InsufficientServerVersion, map[string]interface{}{
 				"code":    "InsufficientServerVersion",
 				"message": "param may only occur once",
 			}
@@ -44,7 +41,7 @@ func doPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}
 			message = v[0]
 			break
 		default:
-			return errorcodes.InvalidParameter, map[string]interface{}{
+			return InvalidParameter, map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("Invalid parameter \"%s\"", k),
 			}
@@ -66,17 +63,10 @@ func doPing(w http.ResponseWriter, r *http.Request) (int, map[string]interface{}
 		}
 	}
 
-	return errorcodes.Success, pong
+	return Success, pong
 }
 
-func Ping(w http.ResponseWriter, r *http.Request) {
-	h := w.Header()
-	h.Set("Server", "Norbye Public Images Repo")
-	h.Set("Content-Type", "application/json; charset=utf-8")
-
-	code, m := doPing(w, r)
-
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+func serverPing(w http.ResponseWriter, r *http.Request) {
+	code, content := doServerPing(w, r)
+	sendResponse(w, code, content)
 }

@@ -1,4 +1,4 @@
-package manifest
+package main
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 )
 
-func Load(path string) (manifest map[string]interface{}, err error) {
+func LoadManifest(path string) (manifest map[string]interface{}, err error) {
 	content, err := ioutil.ReadFile(path)
 	if err != nil {
 		return manifest, err
@@ -21,7 +21,7 @@ func Load(path string) (manifest map[string]interface{}, err error) {
 	return manifest, nil
 }
 
-func Store(path string, manifest map[string]interface{}) (err error) {
+func StoreManifest(path string, manifest map[string]interface{}) (err error) {
 	content, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
@@ -35,16 +35,7 @@ func Store(path string, manifest map[string]interface{}) (err error) {
 	return nil
 }
 
-func stringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
-func ValidateType(value interface{}) error {
+func ManifestValidateType(value interface{}) error {
 	// value should be string!!
 	switch value.(type) {
 	case string:
@@ -61,7 +52,7 @@ func ValidateType(value interface{}) error {
 	return nil
 }
 
-func ValidateOs(value interface{}) error {
+func ManifestValidateOs(value interface{}) error {
 	// value should be string!!
 	switch value.(type) {
 	case string:
@@ -78,7 +69,7 @@ func ValidateOs(value interface{}) error {
 	return nil
 }
 
-func ValidateCompression(value interface{}) error {
+func ManifestValidateCompression(value interface{}) error {
 	// value should be string!!
 	switch value.(type) {
 	case string:

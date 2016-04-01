@@ -1,37 +1,37 @@
-package server
+package main
 
 import (
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-
-	"github.com/trondn/imgapi/errorcodes"
-	"github.com/trondn/imgapi/manifest"
 )
 
-func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[string]interface{}) {
+func doServerAddImageFile(path string, params url.Values, reader io.Reader) (int, map[string]interface{}) {
 	var expectedsha1 string
 	var compression string
 	for k, v := range params {
 		switch k {
 		case "account":
+			fallthrough
 		case "channel":
+			fallthrough
 		case "storage":
+			fallthrough
 		case "dataset_guid":
 			message := map[string]interface{}{
 				"code":    "InsufficientServerVersion",
 				"message": "The server does not support \"account\" and \"channel\"",
 			}
-			return errorcodes.InsufficientServerVersion, message
+			return InsufficientServerVersion, message
 
 		case "compression":
 			compression = v[0]
 			switch compression {
 			case "gzip":
+				fallthrough
 			case "bzip2":
 				break
 			default:
@@ -39,7 +39,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 					"code":    "InvalidParameter",
 					"message": "compression may be gzip of bzip2",
 				}
-				return errorcodes.InvalidParameter, message
+				return InvalidParameter, message
 			}
 
 			break
@@ -53,19 +53,19 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("Invalid parameter: %s", k),
 			}
-			return errorcodes.InvalidParameter, message
+			return InvalidParameter, message
 		}
 	}
 
 	manifestfile := path + "/manifest.json"
 
-	m, err := manifest.Load(manifestfile)
+	m, err := LoadManifest(manifestfile)
 	if err != nil {
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to load manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	if m["state"] == "active" {
@@ -73,7 +73,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 			"code":    "ImageAlreadyActivated",
 			"message": "Can't replace file for an active image",
 		}
-		return errorcodes.ImageAlreadyActivated, message
+		return ImageAlreadyActivated, message
 	}
 
 	filename := path + "/image.gz"
@@ -84,7 +84,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to create image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	var writer io.Writer
@@ -96,7 +96,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 				"code":    "InternalError",
 				"message": fmt.Sprintf("Failed to create zip stream: %v", err),
 			}
-			return errorcodes.InternalError, message
+			return InternalError, message
 		}
 		compression = "gzip"
 	} else {
@@ -110,7 +110,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to store image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	stat, err := os.Stat(filename)
@@ -120,18 +120,18 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to lookup image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	// ok, generate the SHA1
-	sha1sum, err := getSha1Sum(filename)
+	sha1sum, err := GetSha1Sum(filename)
 	if err != nil {
 		os.Remove(filename)
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to get SHA1 for image file: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	if len(expectedsha1) > 0 && sha1sum != expectedsha1 {
@@ -140,7 +140,7 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Incorrect SHA. expected \"%s\" got \"%s\"", expectedsha1, sha1sum),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	entry := map[string]interface{}{
@@ -154,27 +154,20 @@ func doAddImageFile(path string, params url.Values, reader io.Reader) (int, map[
 	}
 
 	m["files"] = files
-	err = manifest.Store(manifestfile, m)
+	err = StoreManifest(manifestfile, m)
 	if err != nil {
 		os.Remove(filename)
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to store manifest: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
-	return errorcodes.Success, m
+	return Success, m
 }
 
-func AddImageFile(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
-	h := w.Header()
-	h.Set("Server", "Norbye Public Images Repo")
-	h.Set("Content-Type", "application/json; charset=utf-8")
-
-	code, m := doAddImageFile(path, params, r.Body)
-
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+func serverAddImageFile(w http.ResponseWriter, r *http.Request, params url.Values, path string) {
+	code, content := doServerAddImageFile(path, params, r.Body)
+	sendResponse(w, code, content)
 }

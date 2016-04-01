@@ -55,7 +55,12 @@ The following features is not supported (there may be more):
 Build
 -----
 
-go build
+If you've got your go build environment all set up you should be
+able to get `imgapi` by simply executing:
+
+    trond@ok ~> go get github.com/trondn/imgapi
+
+ And you'll find the binary in `${GOPATH}/bin`
 
 Run command
 ------------
@@ -64,6 +69,7 @@ Run command
 
 
 `-s`             - Start as a server
+
 `-c configfile`  - Use `configfile` instead of `$HOME/.imgapi.json`
 
 Configuration file
@@ -72,12 +78,12 @@ Configuration file
     {
         "datadir" : "/data/imgapi/files",
         "port" : 8080,
-	"host" : "127.0.0.1",
+        "host" : "127.0.0.1",
         "userdb" : [
-	        {
-	            "name" : "admin",
-	            "password" : "secret"
-	        }
+                {
+                    "name" : "admin",
+                    "password" : "secret"
+                }
         ]
     }
 
@@ -118,10 +124,10 @@ So lets get started and start the image server:
         "port" : 8080,
         "host" : "norbye.ddns.net",
         "userdb" : [
-	        {
-	            "name" : "admin",
-	            "password" : "secret"
-	        }
+                {
+                    "name" : "admin",
+                    "password" : "secret"
+                }
         ]
     }
     me@imgadmsrv ~> ls -l files
@@ -162,6 +168,9 @@ Time to create our first image.
              ]
            }
         }' http://norbye.ddns.net/images
+
+The server returns the newly created manifest:
+
     {
       "description": "Snapshot of Couchbase Server 4.5.0 Community Edition",
       "disabled": false,
@@ -178,13 +187,80 @@ Time to create our first image.
       },
       "state": "unactivated",
       "type": "zone-dataset",
-      "uuid": "f2cd9970-5904-4525-b7e4-14310aa98119",
+      "uuid": "6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b",
+      "v": 2,
       "version": "4.5.0-snapshot"
     }
 
-And we need to add the image file:
+And we need to add the image file to the generated UUID:
 
-    @ todo update me
+    root@smartos ~> curl --upload-file couchbase-watson-4.5.mg.gz \
+                         -u admin:secret \
+			 "http://norbye.ddns.net/images/f2cd9970-5904-4525-b7e4-14310aa98119/file?sha1=`digest -a sha1 couchbase-watson-4.5.img.gz`;compression=gzip"
+
+At this time the server returns the full manifest:
+
+    {
+      "description": "Snapshot of Couchbase Server 4.5.0 Community Edition",
+      "disabled": false,
+      "files": [
+        {
+          "compression": "gzip",
+          "sha1": "db8ef7fde4395a58b1a169e644bac3804cce62d9",
+          "size": 379882274
+        }
+      ],
+      "name": "couchbase-server",
+      "os": "smartos",
+      "public": false,
+      "requirements": {
+        "networks": [
+          {
+            "description": "public",
+            "name": "net0"
+          }
+        ]
+      },
+      "state": "unactivated",
+      "type": "zone-dataset",
+      "uuid": "6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b",
+      "v": 2,
+      "version": "4.5.0-snapshot"
+    }
+
+We can now activate this image with:
+
+    root@smartos ~> curl -X POST -u admin:secret "http://norbye.ddns.net/images/6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b?action=activate"
+
+And the server respond with the updated manifest:
+
+    {
+      "description": "Snapshot of Couchbase Server 4.5.0 Community Edition",
+      "disabled": false,
+      "files": [
+        {
+          "compression": "gzip",
+          "sha1": "db8ef7fde4395a58b1a169e644bac3804cce62d9",
+          "size": 3.79882274e+08
+        }
+      ],
+      "name": "couchbase-server",
+      "os": "smartos",
+      "public": false,
+      "requirements": {
+        "networks": [
+          {
+            "description": "public",
+            "name": "net0"
+          }
+        ]
+      },
+      "state": "active",
+      "type": "zone-dataset",
+      "uuid": "6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b",
+      "v": 2,
+      "version": "4.5.0-snapshot"
+    }
 
 Let's add it as a source:
 
@@ -195,16 +271,51 @@ Let's add it as a source:
     https://datasets.joyent.com/datasets
     http://norbye.ddns.net/
 
-At this time we may start creating a new image
+Now look for our image:
 
+    root@smartos ~> imgadm avail | grep couchbase
+    6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b  couchbase-server        4.5.0-snapshot  smartos  -
+
+And import it:
+
+    root@smartos ~> imgadm import 6de01e97-d7ec-4906-bd8b-cb4eafdb7c8b
 
 Run server under SMF
 --------------------
 
-I've not created the files yet :-)
+You may find a service manifest file in support-files/imgapid.xml. In order
+to use that file you have to:
+
+* Have a user named `imgapid` in the group `imgapid`
+* Have a configuration file in `/opt/local/etc/imgapid/configuration.json`
+* Install the binary as `/opt/local/sbin/imgapid`
+
+The following commands creates a usable setup for you:
+
+    groupadd imgapid
+    roleadd -g imgapid -c "Image API Server" -d /data/imgapid -s /bin/false imgapid
+    mkdir -p /data/imgapid
+    chown imgapid:imgapid /data/imgapid
+    mkdir /opt/local/etc/imgapid/
+    cat > /opt/local/etc/imgapid/configuration.json <<EOF
+    {
+      "datadir" : "/data/imgapid",
+      "port" : 8080,
+      "host" : "127.0.0.1",
+      "userdb" : [
+        {
+          "name" : "admin",
+          "password" : "secret"
+        }
+      ]
+    }
+    EOF
+    cp imgapi /opt/local/sbin/imgapid
+    svccfg import support-files/imgapid.xml
+    svcadm enable imgapid
 
 
-
+<!-- links -->
 [image_api_link]: https://images.joyent.com/docs/#api-summary
 [couchbase_link]: http://www.couchbase.com/
 [smartos_serving_images_link]: https://wiki.smartos.org/display/DOC/Managing+Images#ManagingImages-ServingImages

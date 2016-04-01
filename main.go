@@ -8,12 +8,9 @@ import (
 	"log"
 	"os"
 	"os/user"
-
-	"github.com/trondn/imgapi/common"
-	"github.com/trondn/imgapi/server"
 )
 
-var configuration common.Configuration
+var configuration Configuration
 
 func main() {
 	usr, err := user.Current()
@@ -45,7 +42,7 @@ func main() {
 	}
 
 	if server_mode {
-		server.StartImageServer(configuration)
+		startImageServer()
 	} else {
 		log.Fatal("Client API is not implemented")
 	}

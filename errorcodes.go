@@ -1,4 +1,4 @@
-package errorcodes
+package main
 
 const (
 	Success                   = 200

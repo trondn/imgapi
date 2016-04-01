@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"encoding/json"
@@ -10,9 +10,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/trondn/imgapi/common"
-	"github.com/trondn/imgapi/errorcodes"
-	"github.com/trondn/imgapi/manifest"
+	"github.com/trondn/imgapi/contrib"
 )
 
 func addDefaultValue(key string, value interface{}, manifest map[string]interface{}) {
@@ -22,12 +20,12 @@ func addDefaultValue(key string, value interface{}, manifest map[string]interfac
 	}
 }
 
-func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, datadir string) (int, map[string]interface{}) {
+func doServerCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, datadir string) (int, map[string]interface{}) {
 	content, err := ioutil.ReadAll(r.Body)
 
 	if err != nil {
 		log.Printf("Failed to read body: %e", err)
-		return errorcodes.InternalError, map[string]interface{}{
+		return InternalError, map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to read body: %v", err),
 		}
@@ -37,7 +35,7 @@ func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, da
 	err = json.Unmarshal(content, &m)
 	if err != nil {
 		log.Printf("Failed to parse payload: %e", err)
-		return errorcodes.InternalError, map[string]interface{}{
+		return InternalError, map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to decode body: %v", err),
 		}
@@ -53,7 +51,7 @@ func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, da
 	for i := 0; i < len(mandatory); i++ {
 		_, present := m[mandatory[i]]
 		if !present {
-			return errorcodes.InvalidParameter, map[string]interface{}{
+			return InvalidParameter, map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("Mandatory key \"%s\" is not present", mandatory[i]),
 			}
@@ -64,35 +62,54 @@ func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, da
 	for k, v := range m {
 		switch k {
 		case "owner":
+			fallthrough
 		case "name":
+			fallthrough
 		case "version":
+			fallthrough
 		case "description":
+			fallthrough
 		case "homepage":
+			fallthrough
 		case "eula":
+			fallthrough
 		case "disabled":
+			fallthrough
 		case "public":
 			break
 
 		case "type":
-			err = manifest.ValidateType(v)
+			err = ManifestValidateType(v)
 			break
 
 		case "os":
-			err = manifest.ValidateOs(v)
+			err = ManifestValidateOs(v)
 			break
 
 		case "origin":
+			fallthrough
 		case "acl":
+			fallthrough
 		case "requirements":
+			fallthrough
 		case "users":
+			fallthrough
 		case "billing_tags":
+			fallthrough
 		case "traits":
+			fallthrough
 		case "tags":
+			fallthrough
 		case "generate_passwords":
+			fallthrough
 		case "inherited_directories":
+			fallthrough
 		case "nic_driver":
+			fallthrough
 		case "disk_driver":
+			fallthrough
 		case "cpu_type":
+			fallthrough
 		case "image_size":
 			break
 
@@ -101,18 +118,19 @@ func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, da
 		}
 
 		if err != nil {
-			return errorcodes.InvalidParameter, map[string]interface{}{
+			return InvalidParameter, map[string]interface{}{
 				"code":    "InvalidParameter",
 				"message": fmt.Sprintf("%v", err),
 			}
 		}
 	}
 
-	uuid, _ := common.NewUUID()
+	uuid, _ := contrib.NewUUID()
 	addDefaultValue("uuid", uuid, m)
 	addDefaultValue("state", "unactivated", m)
 	addDefaultValue("disabled", false, m)
 	addDefaultValue("public", false, m)
+	addDefaultValue("v", 2, m)
 
 	// Validate that the uuid don't exists
 	path := datadir + "/" + uuid
@@ -120,38 +138,31 @@ func doCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, da
 	err = os.Mkdir(path, 0777)
 	if err != nil {
 		if os.IsExist(err) {
-			return errorcodes.ImageUuidAlreadyExists, map[string]interface{}{
+			return ImageUuidAlreadyExists, map[string]interface{}{
 				"code":    "ImageUuidAlreadyExists",
 				"message": "Uuid already exists",
 			}
 		}
 
-		return errorcodes.InternalError, map[string]interface{}{
+		return InternalError, map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Internal error: %v", err),
 		}
 	}
 
-	err = manifest.Store(path+"/manifest.json", m)
+	err = StoreManifest(path+"/manifest.json", m)
 	if err != nil {
 		_ = os.RemoveAll(path)
-		return errorcodes.InternalError, map[string]interface{}{
+		return InternalError, map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to write manifest: %v", err),
 		}
 	}
 
-	return errorcodes.Success, m
+	return Success, m
 }
 
-func CreateImage(w http.ResponseWriter, r *http.Request, params url.Values, datadir string) {
-	h := w.Header()
-	h.Set("Server", "Norbye Public Images Repo")
-	h.Set("Content-Type", "application/json; charset=utf-8")
-
-	code, m := doCreateImage(w, r, params, datadir)
-
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+func serverCreateImage(w http.ResponseWriter, r *http.Request, params url.Values, datadir string) {
+	code, content := doServerCreateImage(w, r, params, datadir)
+	sendResponse(w, code, content)
 }

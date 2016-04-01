@@ -1,4 +1,4 @@
-package common
+package contrib
 
 // I found this code snippet on http://play.golang.org/p/4FkNSiUDMg
 // Unfortunately I have no idea about who wrote it so I can't give

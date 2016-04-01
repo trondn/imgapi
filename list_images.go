@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"bytes"
@@ -8,28 +8,16 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-
-	"github.com/trondn/imgapi/errorcodes"
-	"github.com/trondn/imgapi/manifest"
 )
 
-func stringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
-func doListImages(path string, w http.ResponseWriter, r *http.Request) (int, map[string]interface{}) {
+func doServerListImages(path string, w http.ResponseWriter, r *http.Request) (int, map[string]interface{}) {
 	parameters, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		message := map[string]interface{}{
 			"code":    "InternalError",
 			"message": fmt.Sprintf("Failed to parse query parameters: %v", err),
 		}
-		return errorcodes.InternalError, message
+		return InternalError, message
 	}
 
 	keys := []string{
@@ -53,7 +41,7 @@ func doListImages(path string, w http.ResponseWriter, r *http.Request) (int, map
 				"code":    "InternalError",
 				"message": fmt.Sprintf("Invalid key \"%s\"", k),
 			}
-			return errorcodes.InternalError, message
+			return InternalError, message
 		}
 	}
 
@@ -71,7 +59,7 @@ func doListImages(path string, w http.ResponseWriter, r *http.Request) (int, map
 			continue
 		}
 
-		manifest, err := manifest.Load(path + "/" + fileinfo.Name() + "/manifest.json")
+		manifest, err := LoadManifest(path + "/" + fileinfo.Name() + "/manifest.json")
 		if err != nil {
 			log.Printf("Failed to load manifest %s: %e", manifest, err)
 			continue
@@ -104,19 +92,18 @@ func doListImages(path string, w http.ResponseWriter, r *http.Request) (int, map
 	}
 	buffer.WriteString("]")
 
-	var dat map[string]interface{}
-	json.Unmarshal(buffer.Bytes(), &dat)
-	return errorcodes.Success, dat
-
-}
-
-func ListImages(path string, w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Server", "Norbye Public Images Repo")
 	h.Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buffer.Bytes())
 
-	code, m := doListImages(path, w, r)
-	w.WriteHeader(code)
-	a, _ := json.MarshalIndent(m, "", "  ")
-	w.Write(a)
+	return Success, nil
+
+}
+
+func serverListImages(path string, w http.ResponseWriter, r *http.Request) {
+	code, content := doServerListImages(path, w, r)
+	if content != nil {
+		sendResponse(w, code, content)
+	}
 }
