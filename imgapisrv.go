@@ -34,10 +34,14 @@ func serveFile(w http.ResponseWriter, r *http.Request, path string, content_type
 	h := w.Header()
 	h.Set("Server", "Norbye Public Images Repo")
 	h.Set("Content-Type", content_type)
-	h.Set("Content-Length", strconv.Itoa(len(content)))
-	_, err = w.Write(content)
+	contentLength := len(content)
+	h.Set("Content-Length", strconv.Itoa(contentLength))
+	nw, err := w.Write(content)
 	if err != nil {
 		log.Printf("Failed to send %s: %v", path, err)
+	}
+	if nw != contentLength {
+		log.Printf("Size of sent payload (%d) does not match expected (%d) fo %s", nw, contentLength, path)
 	}
 }
 
