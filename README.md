@@ -42,6 +42,11 @@ This works for me, and I'm just happy if it may be of any use for others.
 Limitations
 -----------
 
+As stated above I needed a server I could play around with testing out
+my own images on my own servers. The API provides a lot of functionality
+you can't utilize from the standard `imgadm` tool, and I just skipped
+those.
+
 The following features is not supported (there may be more):
 
  * All retrieval operations are public (but I haven't found a way to
