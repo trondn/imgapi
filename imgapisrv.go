@@ -4,24 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"io"
 )
 
-/**
- * I can't use http.ServeFile due to https://github.com/golang/go/issues/13892
- *
- * As a workaround I'm going to spool the entire file into memory and then
- * write it back.. This won't fly on a popular server, but ehh right now
- * I'm only serving myself ;-)
- */
+
 func serveFile(w http.ResponseWriter, r *http.Request, path string, content_type string) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.Open(path)
 	if err != nil {
 		sendResponse(w, InternalError,
 			map[string]interface{}{
@@ -30,19 +24,29 @@ func serveFile(w http.ResponseWriter, r *http.Request, path string, content_type
 			})
 		return
 	}
+	defer content.Close()
+	
+	
+	//Get the file size
+	FileStat, _ := content.Stat() //Get info from file
+	contentLength_int := FileStat.Size() //Get file size as a int64
+	contentLength := strconv.FormatInt(contentLength_int, 10) //Get file size as a string
+
 
 	h := w.Header()
 	h.Set("Server", "Norbye Public Images Repo")
 	h.Set("Content-Type", content_type)
-	contentLength := len(content)
-	h.Set("Content-Length", strconv.Itoa(contentLength))
-	nw, err := w.Write(content)
+	h.Set("Content-Length", contentLength)
+	content.Seek(0, 0)
+	
+	nw, err :=  io.Copy(w, content)
 	if err != nil {
 		log.Printf("Failed to send %s: %v", path, err)
 	}
-	if nw != contentLength {
-		log.Printf("Size of sent payload (%d) does not match expected (%d) fo %s", nw, contentLength, path)
+	if nw != contentLength_int {
+		log.Printf("Size of sent payload (%d) does not match expected (%d) fo %s", nw, contentLength_int, path)
 	}
+	return
 }
 
 func sendResponse(w http.ResponseWriter, code int, content map[string]interface{}) {
